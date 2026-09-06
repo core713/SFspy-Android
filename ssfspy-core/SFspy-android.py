@@ -1,16 +1,15 @@
+
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# Утилита SFspy-Android [The Absolute Gold Standard for Android Spyware Audit]
+# SFspy-Android Console [Interactive Terminal Edition]
 
 import os
 import sys
 import re
 import time
-import subprocess
 import signal
-import select
-import random
-import threading
+import argparse
+import random  # <-- ДОБАВИЛ
 
 class Colors:
     RESET = '\033[0m'
@@ -18,9 +17,10 @@ class Colors:
     BLUE = '\033[34m'
     YELLOW = '\033[33m'
     GREEN = '\033[32m'
+    CYAN = '\033[36m'
+    MAGENTA = '\033[35m'
 
-print(f"{Colors.BLUE}[+]{Colors.RESET} [INFO] The word Android is a trademark of Google LLC, we are not the copyright holder, but only write a utility for the Android OS.")
-
+# --- ДОБАВИЛ СПИСОК ФАКТОВ ---
 FUN_FACTS = [
     "ОС Core/713 была создана из-за ненависти к Windows обновления?",
     "автор ОС Core/713 не может выучить таблицу умножения/деление столбиком?",
@@ -34,258 +34,246 @@ FUN_FACTS = [
     "автор os-core713 любит троллить ( особенно корпорации )?"
 ]
 
-# --- КОНФИГУРАЦИЯ ---
-PACKAGE = "your_PACKAGE"
-OUTPUT_FILE = "spy_report.txt"
-MAX_SIZE_MB = 500
-TIMEOUT_SECONDS = 10800  # 3 часа
-SIZE_CHECK_INTERVAL = 20
-
-fun_fact_index = 0
-last_fact_time = time.time()
-FACT_INTERVAL = 30
-
-# Данные пользователя для маскировки
-MY_USER = "your_user"
-MY_HOST = "your_host"
-
-MY_SSIDS = [
-    "your_ssid",
-    "your_ssid2"
-]
-
-# Расширенный фильтр
-FILTER_PATTERN = re.compile(
-    rf"({PACKAGE}|Location|GPS|ActivityManager|Connectivity|Telephony|ContentProvider|"
-    rf"PackageManager|ACCESS_FINE_LOCATION|ACCESS_COARSE_LOCATION|READ_CONTACTS|"
-    rf"READ_SMS|RECORD_AUDIO|CAMERA|INTERNET|OpenTelemetry|Watchdog|JobScheduler)",
-    re.IGNORECASE
-)
-
-# --- РЕГУЛЯРКИ ДЛЯ МАСКИРОВКИ ---
-RE_IP4 = re.compile(r'\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b')
-RE_IP6 = re.compile(r'\b(([0-9a-fA-F]{1,4}:){7,7}[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,7}:|([0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,5}(:[0-9a-fA-F]{1,4}){1,2}|([0-9a-fA-F]{1,4}:){1,4}(:[0-9a-fA-F]{1,4}){1,3}|([0-9a-fA-F]{1,4}:){1,3}(:[0-9a-fA-F]{1,4}){1,4}|([0-9a-fA-F]{1,4}:){1,2}(:[0-9a-fA-F]{1,4}){1,5}|[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6})|:((:[0-9a-fA-F]{1,4}){1,7}|:)|fe80:(:[0-9a-fA-F]{0,4}){0,4}%[0-9a-zA-Z]{1,}|::(ffff(:0{1,4}){0,1}:){0,1}\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}|([0-9a-fA-F]{1,4}:){1,4}:\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\b')
-RE_MAC = re.compile(r'(?<![0-9A-Fa-f])(?:[0-9A-Fa-f]{2}[:.-]){5}[0-9A-Fa-f]{2}(?![0-9A-Fa-f])|(?<![0-9A-Fa-f])[0-9A-Fa-f]{12}(?![0-9A-Fa-f])')
-RE_EMAIL = re.compile(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b')
-RE_PHONE = re.compile(r'\b(\+?\d{1,3}[-.\s]?)?(\(?\d{3}\)?[-.\s]?)?\d{3}[-.\s]?\d{2}[-.\s]?\d{2}\b')
-RE_GEO = re.compile(r'(?i)(lat|lng|latitude|longitude|coord|geo|loc)["\']?\s*[:=]\s*["\']?(-?\d{1,3}\.\d{4,8})\b')
-RE_TOKENS = re.compile(r'(?i)(token|auth|session|jwt|bearer|key|secret)[^\w\n]{1,5}([A-Za-z0-9-_=]{32,})')
-RE_SYS_IDS = re.compile(r'(?i)(android_id|imei|meid|serial|sn|hardware_id|device_id)[^\w\n]{1,5}([a-zA-Z0-9-]{8,20})')
-RE_IMSI = re.compile(r'\b(250|255|401|434|436|437|438|400|204|234|235|262|208|310|311|312|313|314|315|316)\d{12}\b')
-RE_ICCID = re.compile(r'\b89\d{17,18}\b')
-RE_UUID = re.compile(r'\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b')
-RE_CARD_CANDIDATE = re.compile(r'\b(?:\d[ -]*?){13,19}\b')
-RE_B64_CANDIDATE = re.compile(r'\b[A-Za-z0-9+/=]{40,}\b')
-
-adb_process = None
-is_exiting = False
-
-# --- ФУНКЦИИ МАСКИРОВКИ ---
-def is_luhn_valid(card_number):
-    digits = [int(c) for c in card_number if c.isdigit()]
-    if len(digits) < 13 or len(digits) > 19: return False
-    checksum = 0
-    for i, digit in enumerate(digits[::-1]):
-        if i % 2 == 1:
-            digit *= 2
-            if digit > 9: digit -= 9
-        checksum += digit
-    return checksum % 10 == 0
-
-def mask_cards(match):
-    raw_str = match.group(0)
-    if is_luhn_valid("".join(c for c in raw_str if c.isdigit())):
-        return "[REDACTED_CARD]"
-    return raw_str
-
-def mask_base64(match):
-    raw_str = match.group(0)
-    has_upper = bool(re.search(r'[A-Z]', raw_str))
-    has_lower = bool(re.search(r'[a-z]', raw_str))
-    has_digit = bool(re.search(r'[0-9]', raw_str))
-    if sum([has_upper, has_lower, has_digit]) < 2:
-        return raw_str
-    if re.search(r'[A-Za-z0-9+/=]{40,}', raw_str):
-        if '?' in raw_str or '&' in raw_str:
-            return re.sub(r'[A-Za-z0-9+/=]{40,}', '[REDACTED_BASE64]', raw_str)
-        return "[REDACTED_BASE64]"
-    return raw_str
-
-def clean_line(line):
-    line = line.replace(f"/home/{MY_USER}", "/home/[REDACTED]")
-    line = line.replace(f"{MY_USER}@{MY_HOST}", "[REDACTED]")
-    line = line.replace(MY_USER, "[REDACTED]")
-    line = line.replace(MY_HOST, "[REDACTED]")
-    for ssid in MY_SSIDS:
-        if ssid:
-            line = line.replace(ssid, "[REDACTED]")
-    line = RE_IP4.sub("[REDACTED]", line)
-    line = RE_IP6.sub("[REDACTED]", line)
-    line = RE_MAC.sub("[REDACTED]", line)
-    line = RE_EMAIL.sub("[REDACTED]", line)
-    line = RE_PHONE.sub("[REDACTED]", line)
-    line = RE_UUID.sub("[REDACTED]", line)
-    line = RE_IMSI.sub("[REDACTED]", line)
-    line = RE_ICCID.sub("[REDACTED]", line)
-    line = RE_CARD_CANDIDATE.sub(mask_cards, line)
-    line = RE_B64_CANDIDATE.sub(mask_base64, line)
-    line = RE_GEO.sub(r"\1=[REDACTED]", line)
-    line = RE_TOKENS.sub(r"\1=[REDACTED]", line)
-    line = RE_SYS_IDS.sub(r"\1=[REDACTED]", line)
-    return line
-
-def cleanup_and_exit(signum=None, frame=None, error_message=None):
-    global adb_process, is_exiting
-    if is_exiting: return
-    is_exiting = True
-
-    if error_message:
-        print(f"{Colors.RED}[+]{Colors.RESET} {error_message}")
-        print(f"{Colors.YELLOW}[+]{Colors.RESET} Засыпаем на 40 секунд, чтобы ты прочитал ошибку...")
-        time.sleep(40)
-
-    print("\n[SF-Spy_SC] Финал теста. Корректно завершаем сессию adb...")
-    if adb_process and adb_process.poll() is None:
-        adb_process.terminate()
-        try:
-            adb_process.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            print(f"{Colors.RED}[+]{Colors.RESET} [SF-safety] ADB завис. Принудительное уничтожение (SIGKILL)...")
-            adb_process.kill()
-            adb_process.wait()
-    print("[SF-Spy] Робот в полной безопасности. Логи зачищены и сохранены.")
-    sys.exit(0)
-
-signal.signal(signal.SIGINT, cleanup_and_exit)
-signal.signal(signal.SIGTERM, cleanup_and_exit)
-
-def print_fun_fact():
-    fact = random.choice(FUN_FACTS)
-    print(f"А ты знал что {fact}")
-
-# --- МИНИ-ИГРА (запускается в отдельном потоке) ---
-def get_number():
+# --- ДОБАВИЛ ФУНКЦИЮ ИГРЫ ---
+def play_game():
+    print("\nПока мы собираем данные, давай поиграем в игру!")
     while True:
         try:
             first = int(input("Введи первое число: "))
             second = int(input("Введи второе число: "))
             target = int(input("Какое число хочешь выбить? "))
+            
             if second <= first:
                 print("Ошибка: второе число должно быть больше первого!")
                 print("Засыпаем на 40 секунд, чтобы ты осознал...")
                 time.sleep(40)
                 continue
+                
             if target < first or target > second:
                 print(f"Ошибка: число {target} не входит в диапазон {first}–{second}!")
                 print("Засыпаем на 40 секунд, чтобы ты подумал...")
                 time.sleep(40)
                 continue
-            return first, second, target
+                
+            attempts = 0
+            while True:
+                attempts += 1
+                result = random.randint(first, second)
+                print(f"Попытка {attempts}: выпало {result}")
+                if result == target:
+                    print(f"Поздравляю! Число {target} выбито с {attempts} попытки!")
+                    break
+                    
+            again = input("Играть ещё? (y/n): ").lower()
+            if again != 'y':
+                print("Всё, хватит! Чтобы остановить — Ctrl+C")
+                break
+                
         except ValueError:
             print("Ошибка: нужно вводить только числа, а не буквы!")
             print("Засыпаем на 40 секунд, чтобы ты отдохнул...")
             time.sleep(40)
 
-def play_game():
-    print("\nПока мы собираем данные, давай поиграем в игру!")
+# --- ПАРСЕР ВРЕМЕНИ (30h, 5m, 2d, 1h30m) ---
+def parse_time(time_str):
+    """Конвертирует строку времени в секунды"""
+    time_regex = re.compile(r'(\d+)([smhd])')
+    matches = time_regex.findall(time_str.lower())
+    
+    if not matches:
+        raise ValueError(f"Неверный формат времени: {time_str}")
+    
+    total_seconds = 0
+    for value, unit in matches:
+        value = int(value)
+        if unit == 's':
+            total_seconds += value
+        elif unit == 'm':
+            total_seconds += value * 60
+        elif unit == 'h':
+            total_seconds += value * 3600
+        elif unit == 'd':
+            total_seconds += value * 86400
+    
+    return total_seconds
+
+# --- ПАРСЕР РАЗМЕРА (500MB, 2GB, 1TB) ---
+def parse_size(size_str):
+    """Конвертирует строку размера в мегабайты"""
+    size_regex = re.compile(r'(\d+(?:\.\d+)?)\s*(kb|mb|gb|tb)?', re.IGNORECASE)
+    match = size_regex.match(size_str.strip())
+    
+    if not match:
+        raise ValueError(f"Неверный формат размера: {size_str}")
+    
+    value = float(match.group(1))
+    unit = match.group(2).lower() if match.group(2) else 'mb'
+    
+    multipliers = {
+        'kb': 1/1024,
+        'mb': 1,
+        'gb': 1024,
+        'tb': 1024*1024
+    }
+    
+    return value * multipliers[unit]
+
+# --- ОСНОВНЫЕ ФУНКЦИИ КОМАНД ---
+def start_monitoring(package, timeout_seconds, max_size_mb):
+    print(f"{Colors.GREEN}[+]{Colors.RESET} Запуск мониторинга...")
+    print(f"{Colors.BLUE}[+]{Colors.RESET} Пакет: {package}")
+    print(f"{Colors.BLUE}[+]{Colors.RESET} Таймаут: {timeout_seconds} сек ({timeout_seconds/3600:.1f} ч)")
+    print(f"{Colors.BLUE}[+]{Colors.RESET} Максимальный размер: {max_size_mb:.1f} МБ")
+    # Здесь будет вызов основной функции мониторинга
+
+def help_command():
+    print(f"""
+{Colors.GREEN}=== SFspy-Android Console ==={Colors.RESET}
+
+{Colors.YELLOW}Краткие команды:{Colors.RESET}
+  {Colors.CYAN}sfspy --st{Colors.RESET} - запустить мониторинг
+  {Colors.CYAN}sfspy --help{Colors.RESET} - справка
+  {Colors.CYAN}sfspy --stop{Colors.RESET} - остановить
+  {Colors.CYAN}sfspy --status{Colors.RESET} - статус
+  {Colors.CYAN}sfspy --clear{Colors.RESET} - очистить экран
+  {Colors.CYAN}sfspy --exit{Colors.RESET} - выход
+
+{Colors.YELLOW}Опции для --st:{Colors.RESET}
+  {Colors.CYAN}-p, --package{Colors.RESET} <имя_пакета>  - целевой пакет
+  {Colors.CYAN}-t, --timeout{Colors.RESET} <время>      - таймаут (30h, 2d, 1h30m)
+  {Colors.CYAN}-s, --size{Colors.RESET} <размер>        - макс. размер файла (500MB, 2GB)
+
+{Colors.YELLOW}Пример:{Colors.RESET}
+  sfspy --st -p "ru.oneme.app" -t 30h -s 5GB
+""")
+
+# --- ИНТЕРАКТИВНАЯ КОНСОЛЬ ---
+def interactive_console():
+    print(f"{Colors.GREEN}Hello to SFspy-Android utility, wait a minute, we load your konsole...{Colors.RESET}")
+    time.sleep(1)
+    print(f"{Colors.BLUE}[+]{Colors.RESET} Консоль готова! Введите 'help' для списка команд.\n")
+    
     while True:
-        first, second, target = get_number()
-        attempts = 0
-        while True:
-            attempts += 1
-            result = random.randint(first, second)
-            print(f"Попытка {attempts}: выпало {result}")
-            if result == target:
-                print(f"Поздравляю! Число {target} выбито с {attempts} попытки!")
-                break
-        again = input("Играть ещё? (y/n): ").lower()
-        if again != 'y':
-            print("Всё, хватит! Чтобы остановить — Ctrl+C")
-            break
+        try:
+            command = input(f"{Colors.GREEN}SFcns>{Colors.RESET} ").strip()
+            
+            if not command:
+                continue
+            
+            parts = command.split()
+            cmd = parts[0].lower()
+            
+            # --- Команды утилиты (с префиксом sfspy) ---
+            if cmd == 'sfspy':
+                if len(parts) < 2:
+                    print(f"{Colors.YELLOW}[+]{Colors.RESET} Используйте: sfspy --действие")
+                    print(f"{Colors.YELLOW}[+]{Colors.RESET} Действия: --st, --stop, --status")
+                    continue
+                    
+                action = parts[1].lower()
+                
+                if action in ['--st', '--start']:
+                    # Парсим аргументы
+                    package = None
+                    timeout_seconds = 10800
+                    max_size_mb = 500
+                    
+                    i = 2
+                    while i < len(parts):
+                        if parts[i] in ['-p', '--package'] and i+1 < len(parts):
+                            package = parts[i+1]
+                            i += 2
+                        elif parts[i] in ['-t', '--timeout'] and i+1 < len(parts):
+                            try:
+                                timeout_seconds = parse_time(parts[i+1])
+                            except ValueError as e:
+                                print(f"{Colors.RED}[+]{Colors.RESET} {e}")
+                                break
+                            i += 2
+                        elif parts[i] in ['-s', '--size'] and i+1 < len(parts):
+                            try:
+                                max_size_mb = parse_size(parts[i+1])
+                            except ValueError as e:
+                                print(f"{Colors.RED}[+]{Colors.RESET} {e}")
+                                break
+                            i += 2
+                        else:
+                            print(f"{Colors.RED}[+]{Colors.RESET} Неизвестный аргумент: {parts[i]}")
+                            i += 1
+                    
+                    if package:
+                        start_monitoring(package, timeout_seconds, max_size_mb)
+                    else:
+                        print(f"{Colors.YELLOW}[+]{Colors.RESET} Укажите пакет: -p <имя_пакета>")
+                        
+                elif action == '--stop':
+                    print(f"{Colors.RED}[+]{Colors.RESET} Мониторинг остановлен")
+                    
+                elif action == '--status':
+                    print(f"{Colors.GREEN}SFspy*{Colors.RESET} {Colors.YELLOW}Active{Colors.RESET}")
+                    
+                elif action == '--help':
+                    print(f"""
+{Colors.GREEN}=== Действия утилиты SFspy ==={Colors.RESET}
+  {Colors.CYAN}sfspy --st{Colors.RESET} - запустить мониторинг
+  {Colors.CYAN}sfspy --stop{Colors.RESET} - остановить
+  {Colors.CYAN}sfspy --status{Colors.RESET} - статус
+  {Colors.CYAN}sfspy --help{Colors.RESET} - это сообщение
+""")
+                else:
+                    print(f"{Colors.RED}[+]{Colors.RESET} Неизвестное действие: {action}")
+                    print(f"{Colors.YELLOW}[+]{Colors.RESET} Доступные: --st, --stop, --status, --help")
+            
+            # --- Команды консоли (без префикса) ---
+            elif cmd in ['help', '--help']:
+                print(f"""
+{Colors.GREEN}=== SFcns Console ==={Colors.RESET}
 
-# --- ОСНОВНАЯ ФУНКЦИЯ ---
-def main():
-    print(f"{Colors.GREEN}[+]{Colors.RESET} === Утилита SFspy-Android v1.0 — Официальный релиз ===")
-    global adb_process, last_fact_time
+{Colors.YELLOW}Команды консоли:{Colors.RESET}
+  {Colors.CYAN}help{Colors.RESET} - эта справка
+  {Colors.CYAN}echo <текст>{Colors.RESET} - вывести текст
+  {Colors.CYAN}clear{Colors.RESET} - очистить экран
+  {Colors.CYAN}funfact{Colors.RESET} - случайный факт
+  {Colors.CYAN}game{Colors.RESET} - мини-игра
+  {Colors.CYAN}exit{Colors.RESET} - выход
 
-    # Проверка ADB
-    try:
-        check_device = subprocess.run(["adb", "get-state"], capture_output=True, text=True)
-    except FileNotFoundError:
-        cleanup_and_exit(error_message="ADB не найден. Установите его (sudo pacman -S android-tools).")
-        return
+{Colors.YELLOW}Команды утилиты (только с sfspy):{Colors.RESET}
+  {Colors.CYAN}sfspy --st -p "пакет" -t 30h -s 5GB{Colors.RESET}
+  {Colors.CYAN}sfspy --status{Colors.RESET}
+  {Colors.CYAN}sfspy --stop{Colors.RESET}
+""")
+                
+            elif cmd == 'echo':
+                echo_text = ' '.join(parts[1:])
+                if echo_text:
+                    print(echo_text)
+                else:
+                    print(f"{Colors.YELLOW}[+]{Colors.RESET} Используйте: echo <текст>")
+                    
+            elif cmd == 'clear':
+                os.system('clear' if os.name == 'posix' else 'cls')
+                
+            elif cmd == 'funfact':
+                fact = random.choice(FUN_FACTS)
+                print(f"{Colors.YELLOW}[FACT]{Colors.RESET} {fact}")
+                
+            elif cmd == 'game':
+                print(f"{Colors.MAGENTA}[+]{Colors.RESET} Запускаю игру...")
+                play_game()
+                
+            elif cmd == 'exit':
+                print(f"{Colors.RED}[+]{Colors.RESET} Завершение работы...")
+                sys.exit(0)
+                
+            else:
+                print(f"{Colors.RED}[+]{Colors.RESET} Неизвестная команда: {cmd}")
+                print(f"{Colors.YELLOW}[+]{Colors.RESET} Введите 'help' для списка команд.")
+                
+        except KeyboardInterrupt:
+            print(f"\n{Colors.YELLOW}[+]{Colors.RESET} Нажмите 'exit' для выхода")
+        except EOFError:
+            sys.exit(0)
 
-    if check_device.returncode != 0:
-        combined_output = (check_device.stdout + check_device.stderr).strip()
-        cleanup_and_exit(error_message=f"Ошибка связи: {combined_output}")
-        return
-
-    print(f"{Colors.BLUE}[+]{Colors.RESET} Сбрасываем буфер logcat...")
-    try:
-        subprocess.run(["adb", "logcat", "-c"], check=True, capture_output=True)
-    except subprocess.CalledProcessError as e:
-        cleanup_and_exit(error_message=f"Ошибка очистки буфера: {e.stderr.strip()}")
-        return
-
-    print(f"{Colors.GREEN}[+]{Colors.RESET} Мониторинг запущен. Пишем в {OUTPUT_FILE}...")
-
-    start_time = time.time()
-    last_size_check = time.time()
-    last_fact_time = time.time()
-    logcat_cmd = ["adb", "logcat"]
-
-    try:
-        adb_process = subprocess.Popen(
-            logcat_cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-            text=True, bufsize=1, errors="replace"
-        )
-
-        # Запускаем игру в отдельном потоке
-        game_thread = threading.Thread(target=play_game, daemon=True)
-        game_thread.start()
-
-        with open(OUTPUT_FILE, "a", encoding="utf-8") as f:
-            f.write(f"\n--- ГЛОБАЛЬНЫЙ МОНИТОРИНГ ЗАПУЩЕН: {time.strftime('%Y-%m-%d %H:%M:%S')} ---\n")
-            f.flush()
-
-            while True:
-                current_time = time.time()
-
-                # Печатаем факт каждые 30 секунд
-                if current_time - last_fact_time >= FACT_INTERVAL:
-                    print_fun_fact()
-                    last_fact_time = current_time
-
-                # Проверка таймаута
-                if current_time - start_time >= TIMEOUT_SECONDS:
-                    print(f"{Colors.GREEN}[+]{Colors.RESET} Время теста вышло. Сбор данных окончен.")
-                    break
-
-                # Проверка размера файла
-                if current_time - last_size_check >= SIZE_CHECK_INTERVAL:
-                    last_size_check = current_time
-                    if os.path.exists(OUTPUT_FILE):
-                        if (os.path.getsize(OUTPUT_FILE) / (1024 * 1024)) >= MAX_SIZE_MB:
-                            print(f"{Colors.RED}[+]{Colors.RESET} СТОП: Превышен лимит диска ({MAX_SIZE_MB} МБ).")
-                            break
-
-                # Читаем строки из adb
-                rlist, _, _ = select.select([adb_process.stdout], [], [], 1.0)
-                if rlist:
-                    line = adb_process.stdout.readline()
-                    if not line:
-                        print(f"{Colors.RED}[+]{Colors.RESET} Поток adb закрылся.")
-                        break
-                    if FILTER_PATTERN.search(line):
-                        f.write(clean_line(line))
-                        f.flush()
-
-    except PermissionError:
-        cleanup_and_exit(error_message=f"Ошибка: Нет прав на запись в файл {OUTPUT_FILE}!")
-    except Exception as e:
-        cleanup_and_exit(error_message=f"Системный сбой: {e}")
-    finally:
-        cleanup_and_exit()
-
+# --- ВЫЗОВ КОНСОЛИ ---
 if __name__ == "__main__":
-    main()
+    interactive_console()
