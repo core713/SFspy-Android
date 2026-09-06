@@ -15,6 +15,7 @@ import sys
 import re
 import os
 import random
+import time
 
 # ============================================================
 # СПИСКИ ДЛЯ МАСКИРОВКИ (заполни своими значениями!)
@@ -161,4 +162,6 @@ if __name__ == "__main__":
 
 random_number = random.randint(1, 1000)
 if random_number == 713:
+    print("WARNING! Error has.. Output error, try again in 20 seconds")
+    time.sleep(20)
     print("хамам топ, чекунец, танцуем братья, оо водиччка прилетела, сикс севен, танцуем все вместе")
