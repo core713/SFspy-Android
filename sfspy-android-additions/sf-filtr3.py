@@ -154,9 +154,11 @@ def main():
     replacements = len(re.findall(r'\[REDACTED[^\]]*\]', cleaned))
     print(f"[+] Готово! Замаскировано блоков: {replacements}")
 
-random_number = random.randint(1, 1000)
-if random_number == 713:
-    print("хамам топ, чекунец, танцуем братья, оо водиччка прилетела, сикс севен, танцуем все вместе")
+
 
 if __name__ == "__main__":
     main()
+
+random_number = random.randint(1, 1000)
+if random_number == 713:
+    print("хамам топ, чекунец, танцуем братья, оо водиччка прилетела, сикс севен, танцуем все вместе")
