@@ -10,7 +10,7 @@ import subprocess
 import signal
 import select
 import random
-import threading  # Для параллельного запуска игры
+import threading
 
 class Colors:
     RESET = '\033[0m'
@@ -134,10 +134,16 @@ def clean_line(line):
     line = RE_SYS_IDS.sub(r"\1=[REDACTED]", line)
     return line
 
-def cleanup_and_exit(signum=None, frame=None):
+def cleanup_and_exit(signum=None, frame=None, error_message=None):
     global adb_process, is_exiting
     if is_exiting: return
     is_exiting = True
+
+    if error_message:
+        print(f"{Colors.RED}[+]{Colors.RESET} {error_message}")
+        print(f"{Colors.YELLOW}[+]{Colors.RESET} Засыпаем на 40 секунд, чтобы ты прочитал ошибку...")
+        time.sleep(40)
+
     print("\n[SF-Spy_SC] Финал теста. Корректно завершаем сессию adb...")
     if adb_process and adb_process.poll() is None:
         adb_process.terminate()
@@ -206,19 +212,19 @@ def main():
     try:
         check_device = subprocess.run(["adb", "get-state"], capture_output=True, text=True)
     except FileNotFoundError:
-        print(f"{Colors.RED}[+]{Colors.RESET} [SF-safety] ADB не найден. Установите его (sudo pacman -S android-tools).")
+        cleanup_and_exit(error_message="ADB не найден. Установите его (sudo pacman -S android-tools).")
         return
 
     if check_device.returncode != 0:
         combined_output = (check_device.stdout + check_device.stderr).strip()
-        print(f"{Colors.RED}[+]{Colors.RESET} Ошибка связи: {combined_output}")
+        cleanup_and_exit(error_message=f"Ошибка связи: {combined_output}")
         return
 
     print(f"{Colors.BLUE}[+]{Colors.RESET} Сбрасываем буфер logcat...")
     try:
         subprocess.run(["adb", "logcat", "-c"], check=True, capture_output=True)
     except subprocess.CalledProcessError as e:
-        print(f"{Colors.RED}[+]{Colors.RESET} Ошибка очистки буфера: {e.stderr.strip()}")
+        cleanup_and_exit(error_message=f"Ошибка очистки буфера: {e.stderr.strip()}")
         return
 
     print(f"{Colors.GREEN}[+]{Colors.RESET} Мониторинг запущен. Пишем в {OUTPUT_FILE}...")
@@ -275,9 +281,9 @@ def main():
                         f.flush()
 
     except PermissionError:
-        print(f"{Colors.RED}[+]{Colors.RESET} Ошибка: Нет прав на запись в файл {OUTPUT_FILE}!")
+        cleanup_and_exit(error_message=f"Ошибка: Нет прав на запись в файл {OUTPUT_FILE}!")
     except Exception as e:
-        print(f"{Colors.RED}[+]{Colors.RESET} Системный сбой: {e}")
+        cleanup_and_exit(error_message=f"Системный сбой: {e}")
     finally:
         cleanup_and_exit()
 
