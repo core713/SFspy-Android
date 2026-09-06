@@ -268,5 +268,35 @@ def main():
     finally:
         cleanup_and_exit()
 
+
+print("пока мы собираем данные, давай поиграем в игру")
+
+def get_number():
+    first = int(input("Введи первое число: "))
+    second = int(input("Введи второе число: "))
+    target = int(input("Какое число хочешь выбить? "))
+    return first, second, target
+
+def play():
+    first, second, target = get_number()
+    attempts = 0
+    
+    while True:
+        attempts += 1
+        result = random.randint(first, second)
+        print(f"Попытка {attempts}: выпало {result}")
+        
+        if result == target:
+            print(f"Поздравляю! Число {target} выбито с {attempts} попытки!")
+            break
+
+# Запускаем игру
+while True:
+    play()
+    again = input("Играть ещё? (y/n): ").lower()
+    if again != 'y':
+        print("Всё, хватит! Чтобы остановить — Ctrl+C")
+        break
+
 if __name__ == "__main__":
     main()
