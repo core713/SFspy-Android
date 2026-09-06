@@ -14,6 +14,7 @@ Android SF Spy — SF Masker v1.0
 import sys
 import re
 import os
+import random
 
 # ============================================================
 # СПИСКИ ДЛЯ МАСКИРОВКИ (заполни своими значениями!)
@@ -33,8 +34,8 @@ RE_IP6 = re.compile(r'\b(([0-9a-fA-F]{1,4}:){7,7}[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1
 RE_MAC = re.compile(r'(?<![0-9A-Fa-f])(?:[0-9A-Fa-f]{2}[:.-]){5}[0-9A-Fa-f]{2}(?![0-9A-Fa-f])|(?<![0-9A-Fa-f])[0-9A-Fa-f]{12}(?![0-9A-Fa-f])')
 RE_EMAIL = re.compile(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b')
 RE_PHONE = re.compile(r'\b(\+?\d{1,3}[-.\s]?)?(\(?\d{3}\)?[-.\s]?)?\d{3}[-.\s]?\d{2}[-.\s]?\d{2}\b') 
-RE_UUID = re.compile(r'\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b') # you can add your codes
-RE_IMSI = re.compile(r'\b(250|255|401|434|436|437|438|400|204|234|235|262|208|310|311|312|313|314|315|316)\d{12}\b')
+RE_UUID = re.compile(r'\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b') 
+RE_IMSI = re.compile(r'\b(250|255|401|434|436|437|438|400|204|234|235|262|208|310|311|312|313|314|315|316)\d{12}\b') # you can add your codes
 RE_ICCID = re.compile(r'\b89\d{17,18}\b')
 
 # Кредитные карты с проверкой Луна
@@ -152,6 +153,10 @@ def main():
     # Статистика
     replacements = len(re.findall(r'\[REDACTED[^\]]*\]', cleaned))
     print(f"[+] Готово! Замаскировано блоков: {replacements}")
+
+random_number = random.randint(1, 1000)
+if random_number == 713:
+    print("хамам топ, чекунец, танцуем братья, оо водиччка прилетела, сикс севен, танцуем все вместе")
 
 if __name__ == "__main__":
     main()
