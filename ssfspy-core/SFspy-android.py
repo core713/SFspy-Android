@@ -14,6 +14,7 @@ import atexit
 import subprocess
 import select
 import math
+import threading
 import tkinter as tk
 from tkinter import ttk
 
@@ -194,43 +195,61 @@ def classify_line(line):
     else:
         return "INIT"
 
-# --- BRAIN: ВИЗУАЛИЗАЦИЯ ЦЕПОЧЕК СОБЫТИЙ ---
-class BrainGUI:
+# --- ANAICS: ВИЗУАЛИЗАЦИЯ ЦЕПОЧЕК СОБЫТИЙ ---
+class AnaicsGUI:
     def __init__(self, events, chains):
         self.events = events
         self.chains = chains
 
         self.window = tk.Tk()
-        self.window.title("SFspy Brain - Event Chains")
+        self.window.title("SFspy Anaics - Event Chains")
         self.window.configure(bg=BG_COLOR)
         self.window.geometry("1200x700")
 
         self.canvas = tk.Canvas(self.window, bg=BG_COLOR, highlightthickness=0)
         self.canvas.pack(fill="both", expand=True)
 
+        # Панель информации внизу
+        self.info_frame = tk.Frame(self.window, bg=CARD_BG, height=150)
+        self.info_frame.pack(side="bottom", fill="x")
+        self.info_frame.pack_propagate(False)
+
+        self.info_text = tk.Text(self.info_frame, bg=CARD_BG, fg=TEXT_COLOR,
+                                 height=8, wrap="word", font=("Arial", 9))
+        self.info_text.pack(fill="both", expand=True, padx=5, pady=5)
+        self.clear_info()
+
         self.canvas.bind("<ButtonPress-1>", self.on_press)
         self.canvas.bind("<B1-Motion>", self.on_drag)
         self.canvas.bind("<ButtonRelease-1>", self.on_release)
         self.canvas.bind("<MouseWheel>", self.on_scroll)
+        self.canvas.bind("<Motion>", self.on_hover)
 
         self.drag_data = {"x": 0, "y": 0}
         self.zoom = 1.0
+        self.node_info = {}
 
         self.draw_chains()
         self.create_controls()
 
         self.window.mainloop()
 
-    def draw_hexagon(self, x, y, size, color, text):
-        """Рисует шестиугольник с текстом"""
+    def draw_hexagon(self, x, y, size, color, text, event_info):
+        """Рисует шестиугольник и сохраняет информацию для hover"""
         points = []
         for i in range(6):
             angle = math.radians(60 * i - 30)
             px = x + size * math.cos(angle)
             py = y + size * math.sin(angle)
             points.append((px, py))
-        self.canvas.create_polygon(points, fill=color, outline="white", width=2)
-        self.canvas.create_text(x, y, text=text, fill="white", font=("Arial", 9, "bold"))
+
+        hex_id = self.canvas.create_polygon(points, fill=color, outline="white", width=2)
+        text_id = self.canvas.create_text(x, y, text=text, fill="white", font=("Arial", 9, "bold"))
+
+        self.node_info[hex_id] = event_info
+        self.node_info[text_id] = event_info
+
+        return hex_id
 
     def draw_chains(self):
         """Рисует цепочки событий шестиугольниками"""
@@ -247,7 +266,14 @@ class BrainGUI:
 
             for event in chain:
                 color = EVENT_TYPES.get(event["type"], "#ffffff")
-                self.draw_hexagon(x, y_offset, hex_size, color, event["type"])
+                info = [event["line"]]
+                for e in self.events:
+                    if e["type"] == event["type"] and e["line"] != event["line"]:
+                        info.append(e["line"])
+                        if len(info) >= 5:
+                            break
+
+                self.draw_hexagon(x, y_offset, hex_size, color, event["type"], info)
 
                 if prev_x is not None:
                     self.canvas.create_line(prev_x + hex_size, prev_y,
@@ -265,6 +291,31 @@ class BrainGUI:
         self.canvas.create_text(600, y_offset + 20,
                                text=f"Всего событий: {total_events} | Цепочек: {total_chains}",
                                fill=TEXT_COLOR, font=("Arial", 12, "bold"))
+
+    def on_hover(self, event):
+        """Обработка наведения мыши"""
+        items = self.canvas.find_overlapping(event.x, event.y, event.x, event.y)
+        if items:
+            item_id = items[0]
+            if item_id in self.node_info:
+                self.show_info(self.node_info[item_id])
+            else:
+                self.clear_info()
+        else:
+            self.clear_info()
+
+    def show_info(self, info_list):
+        """Показывает информацию в нижней панели"""
+        self.info_text.delete("1.0", "end")
+        self.info_text.insert("1.0", "=== События ===\n\n")
+        for i, line in enumerate(info_list, 1):
+            self.info_text.insert("end", f"{i}. {line}\n")
+        self.info_text.insert("end", "\n=== Конец списка ===")
+
+    def clear_info(self):
+        """Очищает информационную панель"""
+        self.info_text.delete("1.0", "end")
+        self.info_text.insert("1.0", "Наведите на шестиугольник для просмотра событий...")
 
     def on_press(self, event):
         self.drag_data["x"] = event.x
@@ -305,7 +356,7 @@ class BrainGUI:
         self.canvas.delete("all")
         self.draw_chains()
 
-def brain():
+def anaics():
     """Открывает GUI с картой событий из лога"""
     output_file = None
     for f in os.listdir("."):
@@ -342,10 +393,15 @@ def brain():
     if current_chain:
         chains.append(current_chain)
 
-    BrainGUI(events, chains)
+    AnaicsGUI(events, chains)
+
+# --- ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ ДЛЯ МОНИТОРИНГА ---
+monitoring_active = False
+monitoring_thread = None
 
 # --- МОНИТОРИНГ ---
 def monitoring_loop(package, timeout_seconds, max_size_mb):
+    global monitoring_active
     output_file = f"{package.replace('.', '_')}_report.txt"
     print(f"{Colors.CYAN}[+]{Colors.RESET} Файл отчёта: {output_file}")
 
@@ -353,16 +409,19 @@ def monitoring_loop(package, timeout_seconds, max_size_mb):
         check = subprocess.run(["adb", "get-state"], capture_output=True, text=True, timeout=5)
         if check.returncode != 0:
             print(f"{Colors.RED}[+]{Colors.RESET} ADB не подключен или устройство не найдено.")
+            monitoring_active = False
             return
     except FileNotFoundError:
         print(f"{Colors.RED}[+]{Colors.RESET} ADB не установлен. Установите android-tools.")
+        monitoring_active = False
         return
     except subprocess.TimeoutExpired:
         print(f"{Colors.RED}[+]{Colors.RESET} Таймаут при проверке ADB.")
+        monitoring_active = False
         return
 
     subprocess.run(["adb", "logcat", "-c"], capture_output=True, text=True)
-    print(f"{Colors.GREEN}[+]{Colors.RESET} Мониторинг запущен для {package}. Нажмите Ctrl+C для остановки.")
+    print(f"{Colors.GREEN}[+]{Colors.RESET} Мониторинг запущен для {package}. Введите 'sfspy --stop' для остановки.")
 
     start_time = time.time()
     last_size_check = time.time()
@@ -382,7 +441,7 @@ def monitoring_loop(package, timeout_seconds, max_size_mb):
             f.write(f"\n--- Мониторинг запущен: {time.strftime('%Y-%m-%d %H:%M:%S')} ---\n")
             f.flush()
 
-            while True:
+            while monitoring_active:
                 current_time = time.time()
                 if current_time - start_time >= timeout_seconds:
                     print(f"{Colors.GREEN}[+]{Colors.RESET} Таймаут ({timeout_seconds} сек) достигнут.")
@@ -405,8 +464,6 @@ def monitoring_loop(package, timeout_seconds, max_size_mb):
                         f.write(cleaned)
                         f.flush()
 
-    except KeyboardInterrupt:
-        print(f"\n{Colors.YELLOW}[+]{Colors.RESET} Мониторинг прерван пользователем.")
     except Exception as e:
         print(f"{Colors.RED}[+]{Colors.RESET} Ошибка во время мониторинга: {e}")
     finally:
@@ -416,15 +473,40 @@ def monitoring_loop(package, timeout_seconds, max_size_mb):
                 adb_process.wait(timeout=5)
             except subprocess.TimeoutExpired:
                 adb_process.kill()
+        monitoring_active = False
         print(f"{Colors.GREEN}[+]{Colors.RESET} Мониторинг завершён. Данные сохранены в {output_file}")
 
-# --- КОМАНДА ЗАПУСКА МОНИТОРИНГА ---
+# --- ЗАПУСК МОНИТОРИНГА В ПОТОКЕ ---
 def start_monitoring(package, timeout_seconds, max_size_mb):
+    global monitoring_active, monitoring_thread
     print(f"{Colors.GREEN}[+]{Colors.RESET} Запуск мониторинга...")
     print(f"{Colors.BLUE}[+]{Colors.RESET} Пакет: {package}")
     print(f"{Colors.BLUE}[+]{Colors.RESET} Таймаут: {timeout_seconds} сек ({timeout_seconds/3600:.2f} ч)")
     print(f"{Colors.BLUE}[+]{Colors.RESET} Максимальный размер: {max_size_mb:.1f} МБ")
-    monitoring_loop(package, timeout_seconds, max_size_mb)
+
+    monitoring_active = True
+    monitoring_thread = threading.Thread(
+        target=monitoring_loop,
+        args=(package, timeout_seconds, max_size_mb),
+        daemon=True
+    )
+    monitoring_thread.start()
+
+# --- ОСТАНОВКА МОНИТОРИНГА ---
+def stop_monitoring():
+    global monitoring_active
+    if monitoring_active:
+        monitoring_active = False
+        print(f"{Colors.RED}[+]{Colors.RESET} Мониторинг остановлен.")
+    else:
+        print(f"{Colors.YELLOW}[+]{Colors.RESET} Мониторинг не запущен.")
+
+# --- СТАТУС МОНИТОРИНГА ---
+def show_status():
+    if monitoring_active:
+        print(f"{Colors.GREEN}SFspy*{Colors.RESET} {Colors.YELLOW}Active{Colors.RESET}")
+    else:
+        print(f"{Colors.GREEN}SFspy*{Colors.RESET} {Colors.RED}Inactive{Colors.RESET}")
 
 # --- СПРАВКА ---
 def help_command():
@@ -433,6 +515,7 @@ def help_command():
 
 {Colors.YELLOW}Краткие команды:{Colors.RESET}
   {Colors.CYAN}sfspy --st{Colors.RESET} - запустить мониторинг
+  {Colors.CYAN}sfspy anaics{Colors.RESET} - аналитика событий
   {Colors.CYAN}sfspy --help{Colors.RESET} - справка
   {Colors.CYAN}sfspy --stop{Colors.RESET} - остановить
   {Colors.CYAN}sfspy --status{Colors.RESET} - статус
@@ -444,12 +527,10 @@ def help_command():
   {Colors.CYAN}-t, --timeout{Colors.RESET} <время>      - таймаут (30h, 2d, 1.36h, 28m)
   {Colors.CYAN}-s, --size{Colors.RESET} <размер>        - макс. размер файла (500MB, 2GB)
 
-{Colors.YELLOW}Команда brain:{Colors.RESET}
-  {Colors.CYAN}brain{Colors.RESET} - визуализация цепочек событий
-
 {Colors.YELLOW}Примеры:{Colors.RESET}
   sfspy --st -p "ru.oneme.app" -t 1.36h -s 5GB
   sfspy --st "ru.oneme.app" 30h 5GB
+  sfspy anaics
 """)
 
 # --- ИНТЕРАКТИВНАЯ КОНСОЛЬ ---
@@ -475,7 +556,7 @@ def interactive_console():
             if cmd == 'sfspy':
                 if len(parts) < 2:
                     print(f"{Colors.YELLOW}[+]{Colors.RESET} Используйте: sfspy --действие")
-                    print(f"{Colors.YELLOW}[+]{Colors.RESET} Действия: --st, --stop, --status")
+                    print(f"{Colors.YELLOW}[+]{Colors.RESET} Действия: --st, anaics, --stop, --status")
                     continue
                 action = parts[1].lower()
 
@@ -526,23 +607,27 @@ def interactive_console():
                     else:
                         print(f"{Colors.YELLOW}[+]{Colors.RESET} Укажите пакет: -p <имя_пакета>")
 
+                elif action == 'anaics':
+                    anaics()
+
                 elif action == '--stop':
-                    print(f"{Colors.RED}[+]{Colors.RESET} Мониторинг остановлен")
+                    stop_monitoring()
 
                 elif action == '--status':
-                    print(f"{Colors.GREEN}SFspy*{Colors.RESET} {Colors.YELLOW}Active{Colors.RESET}")
+                    show_status()
 
                 elif action == '--help':
                     print(f"""
 {Colors.GREEN}=== Действия утилиты SFspy ==={Colors.RESET}
   {Colors.CYAN}sfspy --st{Colors.RESET} - запустить мониторинг
+  {Colors.CYAN}sfspy anaics{Colors.RESET} - аналитика событий
   {Colors.CYAN}sfspy --stop{Colors.RESET} - остановить
   {Colors.CYAN}sfspy --status{Colors.RESET} - статус
   {Colors.CYAN}sfspy --help{Colors.RESET} - это сообщение
 """)
                 else:
                     print(f"{Colors.RED}[+]{Colors.RESET} Неизвестное действие: {action}")
-                    print(f"{Colors.YELLOW}[+]{Colors.RESET} Доступные: --st, --stop, --status, --help")
+                    print(f"{Colors.YELLOW}[+]{Colors.RESET} Доступные: --st, anaics, --stop, --status, --help")
 
             elif cmd in ['help', '--help']:
                 print(f"""
@@ -555,11 +640,11 @@ def interactive_console():
   {Colors.CYAN}funfact{Colors.RESET} - случайный факт
   {Colors.CYAN}game{Colors.RESET} - мини-игра
   {Colors.CYAN}history{Colors.RESET} - показать историю
-  {Colors.CYAN}brain{Colors.RESET} - карта событий
   {Colors.CYAN}exit{Colors.RESET} - выход
 
 {Colors.YELLOW}Команды утилиты (только с sfspy):{Colors.RESET}
   {Colors.CYAN}sfspy --st "пакет" 1.36h 5GB{Colors.RESET}
+  {Colors.CYAN}sfspy anaics{Colors.RESET}
   {Colors.CYAN}sfspy --status{Colors.RESET}
   {Colors.CYAN}sfspy --stop{Colors.RESET}
 """)
@@ -584,9 +669,6 @@ def interactive_console():
 
             elif cmd == 'history':
                 show_history()
-
-            elif cmd == 'brain':
-                brain()
 
             elif cmd == 'exit':
                 print(f"{Colors.RED}[+]{Colors.RESET} Завершение работы...")
