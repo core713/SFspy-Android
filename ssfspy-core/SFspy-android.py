@@ -11,8 +11,11 @@ import argparse
 import random
 import readline
 import atexit
-import subprocess  # Для adb
-import select      # Для неблокирующего чтения
+import subprocess
+import select
+import math
+import tkinter as tk
+from tkinter import ttk
 
 class Colors:
     RESET = '\033[0m'
@@ -149,12 +152,203 @@ def clean_line(line):
     line = RE_PHONE.sub("[REDACTED]", line)
     return line
 
+# --- КЛАССИФИКАЦИЯ СОБЫТИЙ ---
+BG_COLOR = "#1a1a2e"
+CARD_BG = "#16213e"
+TEXT_COLOR = "#e0e0e0"
+
+EVENT_TYPES = {
+    "START": "#00c853",
+    "INIT": "#00bcd4",
+    "NETWORK": "#2196f3",
+    "CONTACTS": "#ffeb3b",
+    "ERROR": "#ff9800",
+    "CRITICAL": "#f44336",
+    "ZOMBIE": "#9c27b0",
+    "DIED": "#757575",
+    "REVERT": "#e91e63",
+    "WARNING": "#ff5722",
+}
+
+def classify_line(line):
+    """Более точная классификация событий"""
+    line_lower = line.lower()
+    if "fatal" in line_lower or "crash" in line_lower or "androidruntime" in line_lower:
+        return "CRITICAL"
+    elif "zombie" in line_lower:
+        return "ZOMBIE"
+    elif "has died" in line_lower or ("process" in line_lower and "died" in line_lower):
+        return "DIED"
+    elif "start proc" in line_lower or "activitymanager: start" in line_lower:
+        return "START"
+    elif "contactsprovider" in line_lower:
+        return "CONTACTS"
+    elif "requestnetwork" in line_lower or "connectivityservice" in line_lower:
+        return "NETWORK"
+    elif "revert" in line_lower or "restart" in line_lower:
+        return "REVERT"
+    elif "warn" in line_lower:
+        return "WARNING"
+    elif "error" in line_lower or "exception" in line_lower:
+        return "ERROR"
+    else:
+        return "INIT"
+
+# --- BRAIN: ВИЗУАЛИЗАЦИЯ ЦЕПОЧЕК СОБЫТИЙ ---
+class BrainGUI:
+    def __init__(self, events, chains):
+        self.events = events
+        self.chains = chains
+
+        self.window = tk.Tk()
+        self.window.title("SFspy Brain - Event Chains")
+        self.window.configure(bg=BG_COLOR)
+        self.window.geometry("1200x700")
+
+        self.canvas = tk.Canvas(self.window, bg=BG_COLOR, highlightthickness=0)
+        self.canvas.pack(fill="both", expand=True)
+
+        self.canvas.bind("<ButtonPress-1>", self.on_press)
+        self.canvas.bind("<B1-Motion>", self.on_drag)
+        self.canvas.bind("<ButtonRelease-1>", self.on_release)
+        self.canvas.bind("<MouseWheel>", self.on_scroll)
+
+        self.drag_data = {"x": 0, "y": 0}
+        self.zoom = 1.0
+
+        self.draw_chains()
+        self.create_controls()
+
+        self.window.mainloop()
+
+    def draw_hexagon(self, x, y, size, color, text):
+        """Рисует шестиугольник с текстом"""
+        points = []
+        for i in range(6):
+            angle = math.radians(60 * i - 30)
+            px = x + size * math.cos(angle)
+            py = y + size * math.sin(angle)
+            points.append((px, py))
+        self.canvas.create_polygon(points, fill=color, outline="white", width=2)
+        self.canvas.create_text(x, y, text=text, fill="white", font=("Arial", 9, "bold"))
+
+    def draw_chains(self):
+        """Рисует цепочки событий шестиугольниками"""
+        y_offset = 60
+        hex_size = 35
+
+        for chain_idx, chain in enumerate(self.chains[:8]):
+            x = 80
+            prev_x = None
+            prev_y = None
+
+            self.canvas.create_text(50, y_offset, text=f"Chain {chain_idx+1}",
+                                   fill=TEXT_COLOR, font=("Arial", 10, "bold"), anchor="e")
+
+            for event in chain:
+                color = EVENT_TYPES.get(event["type"], "#ffffff")
+                self.draw_hexagon(x, y_offset, hex_size, color, event["type"])
+
+                if prev_x is not None:
+                    self.canvas.create_line(prev_x + hex_size, prev_y,
+                                          x - hex_size, y_offset,
+                                          fill=color, width=2, arrow="last")
+
+                prev_x = x
+                prev_y = y_offset
+                x += hex_size * 2.5
+
+            y_offset += hex_size * 2.5
+
+        total_events = len(self.events)
+        total_chains = len(self.chains)
+        self.canvas.create_text(600, y_offset + 20,
+                               text=f"Всего событий: {total_events} | Цепочек: {total_chains}",
+                               fill=TEXT_COLOR, font=("Arial", 12, "bold"))
+
+    def on_press(self, event):
+        self.drag_data["x"] = event.x
+        self.drag_data["y"] = event.y
+
+    def on_drag(self, event):
+        dx = event.x - self.drag_data["x"]
+        dy = event.y - self.drag_data["y"]
+        self.canvas.move("all", dx, dy)
+        self.drag_data["x"] = event.x
+        self.drag_data["y"] = event.y
+
+    def on_release(self, event):
+        pass
+
+    def on_scroll(self, event):
+        if event.delta > 0:
+            self.canvas.move("all", 0, 20)
+        else:
+            self.canvas.move("all", 0, -20)
+
+    def create_controls(self):
+        frame = tk.Frame(self.window, bg=CARD_BG)
+        frame.pack(side="bottom", fill="x")
+
+        ttk.Button(frame, text="Zoom +", command=self.zoom_in).pack(side="left", padx=5, pady=5)
+        ttk.Button(frame, text="Zoom -", command=self.zoom_out).pack(side="left", padx=5, pady=5)
+        ttk.Button(frame, text="Reset", command=self.reset_view).pack(side="left", padx=5, pady=5)
+        ttk.Button(frame, text="Close", command=self.window.destroy).pack(side="right", padx=5, pady=5)
+
+    def zoom_in(self):
+        self.canvas.scale("all", 600, 300, 1.1, 1.1)
+
+    def zoom_out(self):
+        self.canvas.scale("all", 600, 300, 0.9, 0.9)
+
+    def reset_view(self):
+        self.canvas.delete("all")
+        self.draw_chains()
+
+def brain():
+    """Открывает GUI с картой событий из лога"""
+    output_file = None
+    for f in os.listdir("."):
+        if f.endswith("_report.txt"):
+            if output_file is None or os.path.getmtime(f) > os.path.getmtime(output_file):
+                output_file = f
+
+    if not output_file:
+        print(f"{Colors.RED}[+]{Colors.RESET} Файл отчёта не найден. Сначала запустите мониторинг.")
+        return
+
+    print(f"{Colors.CYAN}[+]{Colors.RESET} Читаю файл: {output_file}")
+
+    events = []
+    with open(output_file, "r", encoding="utf-8", errors="replace") as f:
+        for line in f:
+            line = line.strip()
+            if line and not line.startswith("---"):
+                event_type = classify_line(line)
+                events.append({"type": event_type, "line": line})
+
+    if not events:
+        print(f"{Colors.YELLOW}[+]{Colors.RESET} В логе нет событий.")
+        return
+
+    chains = []
+    current_chain = []
+    for event in events:
+        if event["type"] == "START" and current_chain:
+            chains.append(current_chain)
+            current_chain = [event]
+        else:
+            current_chain.append(event)
+    if current_chain:
+        chains.append(current_chain)
+
+    BrainGUI(events, chains)
+
 # --- МОНИТОРИНГ ---
 def monitoring_loop(package, timeout_seconds, max_size_mb):
     output_file = f"{package.replace('.', '_')}_report.txt"
     print(f"{Colors.CYAN}[+]{Colors.RESET} Файл отчёта: {output_file}")
 
-    # Проверка adb
     try:
         check = subprocess.run(["adb", "get-state"], capture_output=True, text=True, timeout=5)
         if check.returncode != 0:
@@ -167,9 +361,7 @@ def monitoring_loop(package, timeout_seconds, max_size_mb):
         print(f"{Colors.RED}[+]{Colors.RESET} Таймаут при проверке ADB.")
         return
 
-    # Очистка лога
     subprocess.run(["adb", "logcat", "-c"], capture_output=True, text=True)
-
     print(f"{Colors.GREEN}[+]{Colors.RESET} Мониторинг запущен для {package}. Нажмите Ctrl+C для остановки.")
 
     start_time = time.time()
@@ -251,6 +443,9 @@ def help_command():
   {Colors.CYAN}-p, --package{Colors.RESET} <имя_пакета>  - целевой пакет
   {Colors.CYAN}-t, --timeout{Colors.RESET} <время>      - таймаут (30h, 2d, 1.36h, 28m)
   {Colors.CYAN}-s, --size{Colors.RESET} <размер>        - макс. размер файла (500MB, 2GB)
+
+{Colors.YELLOW}Команда brain:{Colors.RESET}
+  {Colors.CYAN}brain{Colors.RESET} - визуализация цепочек событий
 
 {Colors.YELLOW}Примеры:{Colors.RESET}
   sfspy --st -p "ru.oneme.app" -t 1.36h -s 5GB
@@ -360,6 +555,7 @@ def interactive_console():
   {Colors.CYAN}funfact{Colors.RESET} - случайный факт
   {Colors.CYAN}game{Colors.RESET} - мини-игра
   {Colors.CYAN}history{Colors.RESET} - показать историю
+  {Colors.CYAN}brain{Colors.RESET} - карта событий
   {Colors.CYAN}exit{Colors.RESET} - выход
 
 {Colors.YELLOW}Команды утилиты (только с sfspy):{Colors.RESET}
@@ -388,6 +584,9 @@ def interactive_console():
 
             elif cmd == 'history':
                 show_history()
+
+            elif cmd == 'brain':
+                brain()
 
             elif cmd == 'exit':
                 print(f"{Colors.RED}[+]{Colors.RESET} Завершение работы...")
