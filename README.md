@@ -22,3 +22,12 @@
 ### Connect your phone to your PC via a wired connection, enter the command "python3 SFspy-Android.py," and allow the connection.
 
 ### Done! You've configured the settings, and the utility is now ready to use. Good luck!
+
+# Important Privacy Notice:
+**We do not receive your data**
+**We do not process your data**
+**All data stored is local on your PC**
+**We do not access your data files created by SFspy-Android, do not collect telemetry, and do not send a single bit of your data. Everything is local on your PC**
+ 
+> { > **All data is local on your PC**
+}
