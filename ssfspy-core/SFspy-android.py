@@ -15,6 +15,7 @@ import subprocess
 import select
 import math
 import threading
+import hashlib
 import tkinter as tk
 from tkinter import ttk
 
@@ -152,6 +153,28 @@ def clean_line(line):
     line = RE_EMAIL.sub("[REDACTED]", line)
     line = RE_PHONE.sub("[REDACTED]", line)
     return line
+
+# --- АДМИНИСТРАТОР AUOS ---
+ADMIN_FILE = os.path.expanduser("~/.sfspy_admin")
+admin_authenticated = False
+anon_mode = True  # Маскировка включена по умолчанию
+
+def hash_password(password):
+    return hashlib.sha256(password.encode()).hexdigest()
+
+def is_admin_configured():
+    return os.path.exists(ADMIN_FILE)
+
+def save_admin_password(password):
+    with open(ADMIN_FILE, "w") as f:
+        f.write(hash_password(password))
+
+def check_admin_password(password):
+    if not os.path.exists(ADMIN_FILE):
+        return False
+    with open(ADMIN_FILE, "r") as f:
+        stored_hash = f.read().strip()
+    return hash_password(password) == stored_hash
 
 # --- КЛАССИФИКАЦИЯ СОБЫТИЙ ---
 BG_COLOR = "#1a1a2e"
@@ -401,7 +424,7 @@ monitoring_thread = None
 
 # --- МОНИТОРИНГ ---
 def monitoring_loop(package, timeout_seconds, max_size_mb):
-    global monitoring_active
+    global monitoring_active, anon_mode
     output_file = f"{package.replace('.', '_')}_report.txt"
     print(f"{Colors.CYAN}[+]{Colors.RESET} Файл отчёта: {output_file}")
 
@@ -460,7 +483,10 @@ def monitoring_loop(package, timeout_seconds, max_size_mb):
                         print(f"{Colors.RED}[+]{Colors.RESET} Поток adb закрылся.")
                         break
                     if filter_pattern.search(line):
-                        cleaned = clean_line(line)
+                        if anon_mode:
+                            cleaned = clean_line(line)
+                        else:
+                            cleaned = line
                         f.write(cleaned)
                         f.flush()
 
@@ -629,6 +655,65 @@ def interactive_console():
                     print(f"{Colors.RED}[+]{Colors.RESET} Неизвестное действие: {action}")
                     print(f"{Colors.YELLOW}[+]{Colors.RESET} Доступные: --st, anaics, --stop, --status, --help")
 
+            elif cmd == 'auos':
+                if len(parts) < 2:
+                    print(f"{Colors.YELLOW}[+]{Colors.RESET} Используйте: auos login | auos logout | auos wipe-act | auos unact-sf-sc")
+                    continue
+                action = parts[1].lower()
+
+                if action == 'login':
+                    if is_admin_configured():
+                        password = input("Password: ")
+                        if check_admin_password(password):
+                            admin_authenticated = True
+                            print(f"{Colors.GREEN}[+]{Colors.RESET} Режим администратора активирован.")
+                        else:
+                            print(f"{Colors.RED}[+]{Colors.RESET} Неверный пароль!")
+                    else:
+                        password = input("Создайте пароль администратора: ")
+                        if len(password) < 4:
+                            print(f"{Colors.RED}[+]{Colors.RESET} Пароль слишком короткий (минимум 4 символа).")
+                        else:
+                            save_admin_password(password)
+                            admin_authenticated = True
+                            print(f"{Colors.GREEN}[+]{Colors.RESET} Пароль сохранён. Режим администратора активирован.")
+
+                elif action == 'logout':
+                    admin_authenticated = False
+                    print(f"{Colors.YELLOW}[+]{Colors.RESET} Вы вышли из режима администратора.")
+
+                elif action == 'wipe-act':
+                    if admin_authenticated:
+                        deleted = 0
+                        for f in os.listdir("."):
+                            if f.endswith("_report.txt"):
+                                os.remove(f)
+                                deleted += 1
+                        print(f"{Colors.RED}[+]{Colors.RESET} Удалено файлов логов: {deleted}")
+                    else:
+                        print(f"{Colors.YELLOW}[+]{Colors.RESET} Требуется вход: auos login")
+
+                elif action == 'unact-sf-sc':
+                    global anon_mode
+                    if admin_authenticated:
+                        anon_mode = not anon_mode
+                        status = "выключена" if not anon_mode else "включена"
+                        print(f"{Colors.YELLOW}[+]{Colors.RESET} Маскировка личных данных {status}.")
+                    else:
+                        print(f"{Colors.YELLOW}[+]{Colors.RESET} Требуется вход: auos login")
+
+                elif action == '--help':
+                    print(f"""
+{Colors.MAGENTA}=== AUOS Admin Commands ==={Colors.RESET}
+  {Colors.CYAN}auos login{Colors.RESET} - войти как администратор
+  {Colors.CYAN}auos logout{Colors.RESET} - выйти из режима админа
+  {Colors.CYAN}auos wipe-act{Colors.RESET} - удалить все файлы логов
+  {Colors.CYAN}auos unact-sf-sc{Colors.RESET} - вкл/выкл маскировку личных данных
+  {Colors.CYAN}auos --help{Colors.RESET} - это сообщение
+""")
+                else:
+                    print(f"{Colors.RED}[+]{Colors.RESET} Неизвестная команда auos: {action}")
+
             elif cmd in ['help', '--help']:
                 print(f"""
 {Colors.GREEN}=== SFcns Console ==={Colors.RESET}
@@ -647,6 +732,11 @@ def interactive_console():
   {Colors.CYAN}sfspy anaics{Colors.RESET}
   {Colors.CYAN}sfspy --status{Colors.RESET}
   {Colors.CYAN}sfspy --stop{Colors.RESET}
+
+{Colors.YELLOW}Команды администратора:{Colors.RESET}
+  {Colors.CYAN}auos login{Colors.RESET}
+  {Colors.CYAN}auos wipe-act{Colors.RESET}
+  {Colors.CYAN}auos unact-sf-sc{Colors.RESET}
 """)
 
             elif cmd == 'echo':
