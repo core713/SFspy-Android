@@ -157,7 +157,7 @@ def clean_line(line):
 # --- АДМИНИСТРАТОР AUOS ---
 ADMIN_FILE = os.path.expanduser("~/.sfspy_admin")
 admin_authenticated = False
-anon_mode = True  # Маскировка включена по умолчанию
+secure_mode = True  # Secure-защита включена по умолчанию
 
 def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
@@ -232,7 +232,6 @@ class AnaicsGUI:
         self.canvas = tk.Canvas(self.window, bg=BG_COLOR, highlightthickness=0)
         self.canvas.pack(fill="both", expand=True)
 
-        # Панель информации внизу
         self.info_frame = tk.Frame(self.window, bg=CARD_BG, height=150)
         self.info_frame.pack(side="bottom", fill="x")
         self.info_frame.pack_propagate(False)
@@ -258,7 +257,6 @@ class AnaicsGUI:
         self.window.mainloop()
 
     def draw_hexagon(self, x, y, size, color, text, event_info):
-        """Рисует шестиугольник и сохраняет информацию для hover"""
         points = []
         for i in range(6):
             angle = math.radians(60 * i - 30)
@@ -275,7 +273,6 @@ class AnaicsGUI:
         return hex_id
 
     def draw_chains(self):
-        """Рисует цепочки событий шестиугольниками"""
         y_offset = 60
         hex_size = 35
 
@@ -316,7 +313,6 @@ class AnaicsGUI:
                                fill=TEXT_COLOR, font=("Arial", 12, "bold"))
 
     def on_hover(self, event):
-        """Обработка наведения мыши"""
         items = self.canvas.find_overlapping(event.x, event.y, event.x, event.y)
         if items:
             item_id = items[0]
@@ -328,7 +324,6 @@ class AnaicsGUI:
             self.clear_info()
 
     def show_info(self, info_list):
-        """Показывает информацию в нижней панели"""
         self.info_text.delete("1.0", "end")
         self.info_text.insert("1.0", "=== События ===\n\n")
         for i, line in enumerate(info_list, 1):
@@ -336,7 +331,6 @@ class AnaicsGUI:
         self.info_text.insert("end", "\n=== Конец списка ===")
 
     def clear_info(self):
-        """Очищает информационную панель"""
         self.info_text.delete("1.0", "end")
         self.info_text.insert("1.0", "Наведите на шестиугольник для просмотра событий...")
 
@@ -380,7 +374,6 @@ class AnaicsGUI:
         self.draw_chains()
 
 def anaics():
-    """Открывает GUI с картой событий из лога"""
     output_file = None
     for f in os.listdir("."):
         if f.endswith("_report.txt"):
@@ -424,7 +417,7 @@ monitoring_thread = None
 
 # --- МОНИТОРИНГ ---
 def monitoring_loop(package, timeout_seconds, max_size_mb):
-    global monitoring_active, anon_mode
+    global monitoring_active, secure_mode
     output_file = f"{package.replace('.', '_')}_report.txt"
     print(f"{Colors.CYAN}[+]{Colors.RESET} Файл отчёта: {output_file}")
 
@@ -483,12 +476,14 @@ def monitoring_loop(package, timeout_seconds, max_size_mb):
                         print(f"{Colors.RED}[+]{Colors.RESET} Поток adb закрылся.")
                         break
                     if filter_pattern.search(line):
-                        if anon_mode:
-                            cleaned = clean_line(line)
+                        cleaned = clean_line(line)
+                        if secure_mode:
+                            if len(cleaned.strip()) > 0:
+                                f.write(cleaned)
+                                f.flush()
                         else:
-                            cleaned = line
-                        f.write(cleaned)
-                        f.flush()
+                            f.write(cleaned)
+                            f.flush()
 
     except Exception as e:
         print(f"{Colors.RED}[+]{Colors.RESET} Ошибка во время мониторинга: {e}")
@@ -561,6 +556,7 @@ def help_command():
 
 # --- ИНТЕРАКТИВНАЯ КОНСОЛЬ ---
 def interactive_console():
+    global admin_authenticated, secure_mode
     setup_history()
 
     print(f"{Colors.GREEN}Hello to SFspy-Android utility, wait a minute, we load your konsole...{Colors.RESET}")
@@ -657,7 +653,7 @@ def interactive_console():
 
             elif cmd == 'auos':
                 if len(parts) < 2:
-                    print(f"{Colors.YELLOW}[+]{Colors.RESET} Используйте: auos login | auos logout | auos wipe-act | auos unact-sf-sc")
+                    print(f"{Colors.YELLOW}[+]{Colors.RESET} Используйте: auos login | auos logout | auos wipe-act | auos unact-sf-sc | auos -np --no-preserve-root")
                     continue
                 action = parts[1].lower()
 
@@ -694,13 +690,29 @@ def interactive_console():
                         print(f"{Colors.YELLOW}[+]{Colors.RESET} Требуется вход: auos login")
 
                 elif action == 'unact-sf-sc':
-                    global anon_mode
                     if admin_authenticated:
-                        anon_mode = not anon_mode
-                        status = "выключена" if not anon_mode else "включена"
-                        print(f"{Colors.YELLOW}[+]{Colors.RESET} Маскировка личных данных {status}.")
+                        secure_mode = not secure_mode
+                        status = "выключена" if not secure_mode else "включена"
+                        print(f"{Colors.YELLOW}[+]{Colors.RESET} Secure-защита {status}.")
                     else:
                         print(f"{Colors.YELLOW}[+]{Colors.RESET} Требуется вход: auos login")
+
+                elif action in ['-np', '--no-preserve-root']:
+                    if not admin_authenticated:
+                        print(f"{Colors.YELLOW}[+]{Colors.RESET} Требуется вход: auos login")
+                    else:
+                        for i in range(1, 5):
+                            confirm = input(f"Вы уверены, что хотите сменить пароль? ({i}/4) [y/n]: ").lower()
+                            if confirm != 'y':
+                                print(f"{Colors.YELLOW}[+]{Colors.RESET} Смена пароля отменена.")
+                                break
+                        else:
+                            new_password = input("Введите новый пароль: ")
+                            if len(new_password) < 4:
+                                print(f"{Colors.RED}[+]{Colors.RESET} Пароль слишком короткий (минимум 4 символа).")
+                            else:
+                                save_admin_password(new_password)
+                                print(f"{Colors.GREEN}[+]{Colors.RESET} Пароль успешно изменён!")
 
                 elif action == '--help':
                     print(f"""
@@ -708,7 +720,8 @@ def interactive_console():
   {Colors.CYAN}auos login{Colors.RESET} - войти как администратор
   {Colors.CYAN}auos logout{Colors.RESET} - выйти из режима админа
   {Colors.CYAN}auos wipe-act{Colors.RESET} - удалить все файлы логов
-  {Colors.CYAN}auos unact-sf-sc{Colors.RESET} - вкл/выкл маскировку личных данных
+  {Colors.CYAN}auos unact-sf-sc{Colors.RESET} - вкл/выкл Secure-защиту
+  {Colors.CYAN}auos -np --no-preserve-root{Colors.RESET} - сменить пароль администратора
   {Colors.CYAN}auos --help{Colors.RESET} - это сообщение
 """)
                 else:
@@ -737,6 +750,7 @@ def interactive_console():
   {Colors.CYAN}auos login{Colors.RESET}
   {Colors.CYAN}auos wipe-act{Colors.RESET}
   {Colors.CYAN}auos unact-sf-sc{Colors.RESET}
+  {Colors.CYAN}auos -np --no-preserve-root{Colors.RESET}
 """)
 
             elif cmd == 'echo':
