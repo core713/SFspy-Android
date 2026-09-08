@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SFspy-Android | Security Audit Tool</title>
+    <style>
+        :root {
+            --bg: #0a0a14;
+            --surface: #12121f;
+            --surface2: #1a1a2e;
+            --text: #d0d0e0;
+            --dim: #8080a0;
+            --green: #00c853;
+            --cyan: #00bcd4;
+            --yellow: #ffeb3b;
+            --red: #f44336;
+            --purple: #9c27b0;
+            --blue: #2196f3;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: 'Consolas', 'Monaco', monospace;
+            line-height: 1.6;
+            overflow-x: hidden;
+        }
+
+        /* Анимация появления */
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        @keyframes glow {
+            0%, 100% { box-shadow: 0 0 10px var(--green); }
+            50% { box-shadow: 0 0 30px var(--green); }
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 40px 20px;
+        }
+
+        /* Шапка */
+        header {
+            text-align: center;
+            margin-bottom: 60px;
+            animation: fadeInUp 1s ease;
+        }
+
+        header h1 {
+            font-size: 3em;
+            color: var(--green);
+            text-shadow: 0 0 20px rgba(0, 200, 83, 0.5);
+            letter-spacing: 3px;
+        }
+
+        header .subtitle {
+            color: var(--dim);
+            font-size: 1.1em;
+            margin-top: 10px;
+        }
+
+        /* Шестиугольник-декорация */
+        .hex-decoration {
+            width: 60px;
+            height: 35px;
+            background: var(--green);
+            clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
+            margin: 20px auto;
+            animation: pulse 2s infinite;
+        }
+
+        /* Секции */
+        section {
+            background: var(--surface);
+            border: 1px solid #2a2a40;
+            border-radius: 8px;
+            padding: 30px;
+            margin-bottom: 30px;
+            animation: fadeInUp 1s ease;
+        }
+
+        section h2 {
+            color: var(--yellow);
+            margin-bottom: 20px;
+            font-size: 1.5em;
+        }
+
+        /* Roadmap — карта уровней */
+        .roadmap {
+            position: relative;
+            padding-left: 50px;
+        }
+
+        .roadmap::before {
+            content: '';
+            position: absolute;
+            left: 20px;
+            top: 0;
+            bottom: 0;
+            width: 2px;
+            background: #2a2a40;
+        }
+
+        .level {
+            position: relative;
+            margin-bottom: 40px;
+            animation: fadeInUp 1s ease;
+        }
+
+        .level::before {
+            content: '';
+            position: absolute;
+            left: -38px;
+            top: 10px;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            border: 2px solid var(--yellow);
+            background: var(--bg);
+        }
+
+        .level.completed::before {
+            background: var(--green);
+            border-color: var(--green);
+            animation: glow 2s infinite;
+        }
+
+        .level.current::before {
+            background: var(--yellow);
+            border-color: var(--yellow);
+            animation: pulse 1.5s infinite;
+        }
+
+        .level.locked::before {
+            background: var(--dim);
+            border-color: var(--dim);
+        }
+
+        .level h3 {
+            color: var(--cyan);
+            font-size: 1.2em;
+            margin-bottom: 10px;
+        }
+
+        .level .status {
+            display: inline-block;
+            padding: 3px 10px;
+            border-radius: 3px;
+            font-size: 0.8em;
+            margin-bottom: 10px;
+        }
+
+        .status.completed {
+            background: rgba(0, 200, 83, 0.2);
+            color: var(--green);
+        }
+
+        .status.current {
+            background: rgba(255, 235, 59, 0.2);
+            color: var(--yellow);
+        }
+
+        .status.locked {
+            background: rgba(128, 128, 160, 0.2);
+            color: var(--dim);
+        }
+
+        .level ul {
+            list-style: none;
+            padding-left: 0;
+        }
+
+        .level ul li {
+            padding: 5px 0;
+            color: var(--dim);
+        }
+
+        .level ul li::before {
+            content: '› ';
+            color: var(--green);
+        }
+
+        /* Кнопки */
+        .btn {
+            display: inline-block;
+            padding: 10px 20px;
+            border: 1px solid var(--green);
+            color: var(--green);
+            text-decoration: none;
+            border-radius: 4px;
+            transition: all 0.3s;
+        }
+
+        .btn:hover {
+            background: var(--green);
+            color: var(--bg);
+            box-shadow: 0 0 20px rgba(0, 200, 83, 0.5);
+        }
+
+        /* Футер */
+        footer {
+            text-align: center;
+            color: var(--dim);
+            padding: 40px 0;
+            animation: fadeInUp 1s ease;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="hex-decoration"></div>
+            <h1>SFspy-Android</h1>
+            <div class="subtitle">Security Audit Tool for Android</div>
+        </header>
+
+        <section>
+            <h2>Overview</h2>
+            <p>SFspy-Android — это консольный инструмент для аудита безопасности Android-приложений. Мониторинг logcat, маскировка личных данных, визуализация цепочек событий.</p>
+            <br>
+            <a href="https://github.com/core713/SFspy-Android" class="btn">GitHub Repository</a>
+        </section>
+
+        <section>
+            <h2>Roadmap</h2>
+            <div class="roadmap">
+                <div class="level completed">
+                    <span class="status completed">COMPLETED</span>
+                    <h3>Level 1: Core Console</h3>
+                    <ul>
+                        <li>Интерактивная консоль SFcns</li>
+                        <li>История команд (стрелки ↑↓)</li>
+                        <li>Парсеры времени и размера</li>
+                    </ul>
+                </div>
+
+                <div class="level completed">
+                    <span class="status completed">COMPLETED</span>
+                    <h3>Level 2: Monitoring</h3>
+                    <ul>
+                        <li>Сбор logcat в реальном времени</li>
+                        <li>Фильтрация по пакету</li>
+                        <li>Маскировка IP, MAC, email, телефонов</li>
+                    </ul>
+                </div>
+
+                <div class="level completed">
+                    <span class="status completed">COMPLETED</span>
+                    <h3>Level 3: Anaics</h3>
+                    <ul>
+                        <li>Визуализация цепочек событий</li>
+                        <li>Шестиугольные узлы</li>
+                        <li>Hover-информация</li>
+                    </ul>
+                </div>
+
+                <div class="level current">
+                    <span class="status current">IN PROGRESS</span>
+                    <h3>Level 4: AUOS Admin</h3>
+                    <ul>
+                        <li>Режим администратора с паролем</li>
+                        <li>Команды wipe-act, unact-sf-sc</li>
+                        <li>Смена пароля с подтверждением</li>
+                    </ul>
+                </div>
+
+                <div class="level locked">
+                    <span class="status locked">LOCKED</span>
+                    <h3>Level 5: Network Analysis</h3>
+                    <ul>
+                        <li>Перехват сетевых пакетов</li>
+                        <li>Анализ DNS-запросов</li>
+                        <li>Обнаружение скрытых соединений</li>
+                    </ul>
+                </div>
+
+                <div class="level locked">
+                    <span class="status locked">LOCKED</span>
+                    <h3>Level 6: AI Detection</h3>
+                    <ul>
+                        <li>Машинное обучение для обнаружения аномалий</li>
+                        <li>Автоматическая классификация угроз</li>
+                    </ul>
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <h2>Commands</h2>
+            <pre style="color: var(--cyan);">
+SFcns> sfspy --st "ru.oneme.app" 30h 5GB
+SFcns> sfspy anaics
+SFcns> auos login
+SFcns> auos wipe-act
+SFcns> auos unact-sf-sc
+            </pre>
+        </section>
+
+        <footer>
+            SFspy-Android © 2026 | GNU GPLv3.0
+        </footer>
+    </div>
+</body>
+</html>
